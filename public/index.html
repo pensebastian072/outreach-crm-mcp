@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HQ Outreach CRM</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>HQ Outreach CRM</h1>
+            <nav>
+                <button class="nav-btn active" data-page="dashboard">Dashboard</button>
+                <button class="nav-btn" data-page="crm">CRM / Messages</button>
+                <button class="nav-btn" data-page="tracking">Company Tracking</button>
+                <button class="nav-btn" data-page="replies">Replies</button>
+                <button class="nav-btn" data-page="test">🧪 Test Emails</button>
+                <button class="nav-btn" data-page="integrations">Integrations</button>
+            </nav>
+        </header>
+
+        <!-- Dashboard Page -->
+        <div id="dashboard-page" class="page active">
+            <h2>Campaign Dashboard</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3 id="stat-contacts">0</h3>
+                    <p>Total Contacts</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="stat-companies">0</h3>
+                    <p>Total Companies</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="stat-messages-sent">0</h3>
+                    <p>Messages Sent</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="stat-replies">0</h3>
+                    <p>Replies Received</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="stat-companies-reached">0</h3>
+                    <p>Companies Reached</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="stat-companies-not-reached">0</h3>
+                    <p>Companies Not Reached</p>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Import Data to Dashboard</h3>
+                <div class="import-grid">
+                    <div class="panel">
+                        <h4>Contacts File</h4>
+                        <input type="file" id="contact-file" accept=".xlsx,.xls,.csv">
+                        <div class="mapping-grid" id="contact-mapping"></div>
+                    </div>
+                    <div class="panel">
+                        <h4>Crunchbase File</h4>
+                        <input type="file" id="crunchbase-file" accept=".xlsx,.xls,.csv">
+                        <div class="mapping-grid" id="crunchbase-mapping"></div>
+                    </div>
+                    <div class="panel">
+                        <h4>Import Options</h4>
+                        <p class="muted">This will replace existing companies, contacts, messages, and reports.</p>
+                        <button class="primary-btn" onclick="runDashboardImport()">⬆ Import & Replace</button>
+                        <div id="import-status" class="test-status"></div>
+                        <div class="import-summary" id="import-summary"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Quality & Replies Summary</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3 id="stat-avg-score">0</h3>
+                        <p>Avg Draft Score</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="stat-avg-coverage">0</h3>
+                        <p>Avg Coverage</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="stat-avg-similarity">0</h3>
+                        <p>Avg Similarity</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="stat-banned-hits">0</h3>
+                        <p>Banned Phrase Hits</p>
+                    </div>
+                </div>
+                <div class="section">
+                    <h4>Replies by Intent</h4>
+                    <div id="reply-intent-summary" class="panel-body muted">No replies yet.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CRM / Messages Page -->
+        <div id="crm-page" class="page">
+            <h2>CRM - Contacts & Messages</h2>
+            <div class="split-view">
+                <div class="split-main">
+            <div class="filters">
+                <input type="text" id="contact-search" placeholder="Search contacts...">
+                <select id="contact-company-filter">
+                    <option value="">All Companies</option>
+                </select>
+                <select id="contact-title-filter">
+                    <option value="">All Titles</option>
+                </select>
+                <select id="contact-industry-filter">
+                    <option value="">All Industries</option>
+                </select>
+                <select id="status-filter">
+                    <option value="">All Statuses</option>
+                    <option value="DRAFTED">Drafted</option>
+                    <option value="SENT">Sent</option>
+                    <option value="REPLIED">Replied</option>
+                            <option value="INTERESTED">Interested</option>
+                            <option value="BOOKED">Booked</option>
+                            <option value="UNSUBSCRIBED">Unsubscribed</option>
+                        </select>
+                    </div>
+                    
+                    <div class="section">
+                        <h3>Messages Sent</h3>
+                        <div id="messages-list" class="messages-list"></div>
+                    </div>
+
+                    <div class="section">
+                        <h3>Next Contact & Drafts</h3>
+                        <div class="toolbar-group">
+                            <button class="btn btn-primary" onclick="loadNextContact()">Next Contact</button>
+                            <button class="btn btn-secondary" onclick="draftForSelectedContact()">Draft 3 Emails</button>
+                        </div>
+                        <div id="next-contact-panel" class="panel-body muted">No contact selected.</div>
+                        <div id="draft-preview" class="panel-body"></div>
+                    </div>
+                    
+                    <div class="section">
+                        <h3>All Contacts</h3>
+                        <div class="table-container">
+                            <table id="contacts-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Title</th>
+                                        <th>Company</th>
+                                        <th>Email</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="contacts-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <aside class="split-aside">
+                    <div class="panel">
+                        <h3>Company Context</h3>
+                        <div id="crm-company-context" class="panel-body">
+                            <p class="muted">Select a contact to see company context, industries, and description.</p>
+                        </div>
+                    </div>
+                    <div class="panel">
+                        <h3>Contact Snapshot</h3>
+                        <div id="crm-contact-context" class="panel-body">
+                            <p class="muted">Pick a contact to see recent messages and details.</p>
+                        </div>
+                        <div class="panel-body">
+                            <label for="contact-notes">Notes</label>
+                            <textarea id="contact-notes" class="notes-input" rows="4" placeholder="Add notes..."></textarea>
+                            <button class="btn btn-secondary" onclick="saveContactNotes()">Save Notes</button>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </div>
+
+        <!-- Company Tracking Page -->
+        <div id="tracking-page" class="page">
+            <h2>Company Tracking</h2>
+            <div class="split-view">
+                <div class="split-main">
+                    <div class="filters">
+                        <input type="text" id="company-search" placeholder="Search companies...">
+                        <select id="industry-filter">
+                            <option value="">All Industries</option>
+                        </select>
+                        <select id="stage-filter">
+                            <option value="">All Stages</option>
+                        </select>
+                        <select id="country-filter">
+                            <option value="">All Countries</option>
+                        </select>
+                        <input type="number" id="funding-min" placeholder="Min Funding ($)">
+                        <input type="number" id="funding-max" placeholder="Max Funding ($)">
+                        <select id="reached-filter">
+                            <option value="">All Companies</option>
+                            <option value="reached">Reached</option>
+                            <option value="not-reached">Not Reached</option>
+                        </select>
+                    </div>
+
+                    <div class="table-toolbar">
+                        <div class="toolbar-group">
+                            <label for="company-view-select">Saved Views</label>
+                            <select id="company-view-select"></select>
+                            <button class="btn btn-secondary" onclick="saveCompanyView()">Save View</button>
+                        </div>
+                        <div class="toolbar-group">
+                            <button class="btn btn-secondary" onclick="toggleColumnPanel()">Columns</button>
+                        </div>
+                    </div>
+
+                    <div class="column-panel" id="column-panel">
+                        <h4>Show Columns</h4>
+                        <div class="column-grid" id="column-grid"></div>
+                    </div>
+                    
+                    <div class="table-container">
+                        <table id="companies-table">
+                            <thead>
+                                <tr>
+                                    <th data-col="name">Company Name</th>
+                                    <th data-col="industry">Industry</th>
+                                    <th data-col="country">Country</th>
+                                    <th data-col="funding">Funding</th>
+                                    <th data-col="size">Size</th>
+                                    <th data-col="contacts">Contacts</th>
+                                    <th data-col="messages">Messages Sent</th>
+                                    <th data-col="last_contact">Last Contact</th>
+                                    <th data-col="status">Status</th>
+                                    <th data-col="quality">Data Quality</th>
+                                </tr>
+                            </thead>
+                            <tbody id="companies-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <aside class="split-aside">
+                    <div class="panel">
+                        <h3>Company Profile</h3>
+                        <div id="company-detail-panel" class="panel-body">
+                            <p class="muted">Select a company to view Crunchbase context and outreach signals.</p>
+                        </div>
+                        <div class="panel-body">
+                            <label for="company-notes">Notes</label>
+                            <textarea id="company-notes" class="notes-input" rows="4" placeholder="Add notes..."></textarea>
+                            <button class="btn btn-secondary" onclick="saveCompanyNotes()">Save Notes</button>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </div>
+
+        <!-- Integrations Page -->
+        <div id="integrations-page" class="page">
+            <h2>Integrations</h2>
+            <div class="panel">
+                <h3>Gmail</h3>
+                <div id="gmail-status" class="panel-body muted">Not connected.</div>
+                <div class="toolbar-group">
+                    <button class="btn btn-primary" onclick="connectGmail()">Connect Gmail</button>
+                    <button class="btn btn-secondary" onclick="disconnectGmail()">Disconnect</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="btn btn-secondary" onclick="renewGmailWatch()">Renew Watch</button>
+                    <button class="btn btn-secondary" onclick="syncGmailReplies()">Sync Replies</button>
+                    <button class="btn btn-secondary" onclick="syncGmailContacts()">Sync Contacts</button>
+                </div>
+                <div id="gmail-sync-status" class="panel-body muted"></div>
+            </div>
+        </div>
+
+        <!-- Replies Page -->
+        <div id="replies-page" class="page">
+            <h2>Email Replies</h2>
+            <div class="filters">
+                <select id="intent-filter">
+                    <option value="">All Intents</option>
+                    <option value="INTERESTED">Interested</option>
+                    <option value="REPLIED">Replied</option>
+                    <option value="BOOKED">Booked</option>
+                    <option value="UNSUBSCRIBED">Unsubscribed</option>
+                </select>
+            </div>
+            
+            <div id="replies-list" class="replies-list"></div>
+        </div>
+
+        <!-- Test Emails Page -->
+        <div id="test-page" class="page">
+            <h2>Test Email Generation</h2>
+            <div class="split-view test-split">
+                <div class="split-main">
+                    <div class="filters">
+                        <input type="text" id="test-company-search" placeholder="Search companies for testing...">
+                        <div class="chip">Selected: <span id="selected-company-count">0</span></div>
+                    </div>
+                    <div class="table-container">
+                        <table id="test-companies-table">
+                            <thead>
+                                <tr>
+                                    <th>Select</th>
+                                    <th>Company</th>
+                                    <th>Industry</th>
+                                    <th>Size</th>
+                                    <th>Messages</th>
+                                </tr>
+                            </thead>
+                            <tbody id="test-companies-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <aside class="split-aside">
+                    <div class="panel">
+                        <h3>Generate Test Emails</h3>
+                        <div class="panel-body">
+                            <div class="control-group">
+                                <label for="test-count">If no selection, generate:</label>
+                                <input type="number" id="test-count" min="1" max="50" value="5">
+                            </div>
+                            <button class="primary-btn" onclick="runTestEmails()">▶ Run Test</button>
+                            <button class="danger-btn" onclick="deleteAllTestEmails()">🗑️ Delete All Test Emails</button>
+                            <div id="test-status" class="test-status"></div>
+                        </div>
+                    </div>
+                    <div class="panel">
+                        <h3>Generated Drafts</h3>
+                        <div id="test-results" class="test-results"></div>
+                    </div>
+                </aside>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

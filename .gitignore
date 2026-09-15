@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Database
+data/outreach.db
+data/outreach.db-journal
+*.db
+*.db-journal
+
+# Build outputs - DO NOT IGNORE for Azure deployment
+# dist/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+.nyc_output/
+test-results/*
+!test-results/.gitkeep
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Excel/CSV data files (contains sensitive contact info)
+*.xlsx
+*.csv
+crunchbase*.csv
+contacts*.csv
+contact*.csv
+
+# DOCX context files
+*.docx
+
+# Backup files
+*.backup
+*.bak
+actionlint
+
+# Synthetic sample data is the ONE exception to the CSV/XLSX rules above.
+# Every row in samples/ is invented. Real contact exports must never be committed.
+!samples/
+!samples/*.csv

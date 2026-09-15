@@ -1,0 +1,19 @@
+
+export async function createOutlookDraft(
+    db: Database,
+    auth: AuthManager,
+    contactId: number,
+    subject: string,
+    body: string
+): Promise<string> {
+    const client = getOutlookClient();
+    const contact = await db.get<any>(
+        'SELECT first_name, last_name, email FROM contacts WHERE id = ?',
+        [contactId]
+    );
+    if (!contact || !contact.email) {
+        throw new Error('Contact not found or missing email address');
+    }
+    const contactName = `${contact.first_name} ${contact.last_name}`.trim();
+    return await client.createDraft(contact.email, subject, body, contactName);
+}

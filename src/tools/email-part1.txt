@@ -1,0 +1,27 @@
+import { Database } from '../db/database';
+import { AuthManager } from '../lib/auth';
+import { OutlookClient } from '../lib/graph-client';
+import { ContactData, EarthXData, validateDraft } from '../lib/email-utils';
+import { loadEarthXDataFromFile, saveEarthXDataToDb, loadEarthXDataFromDb } from '../lib/earthx-context-loader';
+import { generateAndScoreDrafts, selectBestDraft, enforceDiversity, saveDraftToRecent } from '../lib/email-scoring';
+import { normalizeTitle } from '../lib/title-utils';
+import * as dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
+
+// Global Outlook client instance
+let outlookClient: OutlookClient | null = null;
+
+function getOutlookClient(): OutlookClient {
+    if (outlookClient) return outlookClient;
+    const tenantId = process.env.MS_TENANT_ID;
+    const clientId = process.env.MS_CLIENT_ID;
+    const senderEmail = process.env.MS_SENDER_EMAIL;
+    if (!tenantId || !clientId || !senderEmail) {
+        throw new Error('Missing MS_TENANT_ID, MS_CLIENT_ID, or MS_SENDER_EMAIL in .env file. See .env.example');
+    }
+    const auth = new AuthManager(tenantId, clientId);
+    outlookClient = new OutlookClient(auth, senderEmail);
+    return outlookClient;
+}

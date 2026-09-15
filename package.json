@@ -1,0 +1,52 @@
+{
+  "name": "hq-outreach-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for HQ outreach with Excel import, SQLite, Outlook, and Calendly integration",
+  "main": "dist/index.js",
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "build": "tsc",
+    "start": "node scripts/check-deps.js && node dist/web-server.js",
+    "start:mcp": "node scripts/check-deps.js && node dist/index.js",
+    "dev": "node scripts/check-deps.js && tsx src/web-server.ts",
+    "dev:mcp": "node scripts/check-deps.js && tsx src/index.ts",
+    "test": "node scripts/check-deps.js && node dist/smoke-test.js",
+    "batch-test": "node scripts/check-deps.js && tsx src/batch-test-runner.ts",
+    "batch-test:25": "node scripts/check-deps.js && tsx src/batch-test-runner.ts --limit 25",
+    "batch-test:100": "node scripts/check-deps.js && tsx src/batch-test-runner.ts --limit 100"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^1.18.4",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "axios": "^1.13.3",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "googleapis": "^171.2.0",
+    "isomorphic-fetch": "^3.0.0",
+    "mammoth": "^1.11.0",
+    "multer": "^1.4.5-lts.1",
+    "sqlite3": "^5.0.2",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^20.10.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "mcp",
+    "outreach",
+    "excel",
+    "sqlite",
+    "outlook",
+    "graph"
+  ],
+  "author": "",
+  "license": "ISC"
+}

@@ -1,0 +1,186 @@
+import * as dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
+
+// Global Outlook client instance (lazy initialized)
+let outlookClient: OutlookClient | null = null;
+
+/**
+ * Gets or creates the Outlook client with authentication.
+ */
+function getOutlookClient(): OutlookClient {
+    if (outlookClient) return outlookClient;
+
+    const tenantId = process.env.MS_TENANT_ID;
+    const clientId = process.env.MS_CLIENT_ID;
+    const senderEmail = process.env.MS_SENDER_EMAIL;
+
+    if (!tenantId || !clientId || !senderEmail) {
+        throw new Error(
+            'Missing Microsoft Graph configuration. Please set MS_TENANT_ID, MS_CLIENT_ID, and MS_SENDER_EMAIL in .env file. ' +
+            'See .env.example for template.'
+        );
+    } n
+    const authManager = new AuthManager(tenantId, clientId);
+    outlookClient = new OutlookClient(authManager, senderEmail);
+    
+    return outlookClient;
+}
+
+export async function draftOutreachEmail(
+    db: Database,
+    contactId: number,
+    campaignId: number,
+    template: string = 'earthx',
+    tone: string
+): Promise<{subject: string, body: string, messageId: number, drafts: any[]}> {
+    // Get contact data with all available fields
+    const contact = await db.get<ContactData>(
+        `SELECT c.*,
+                co.name as company_name,
+                co.crunchbase_description,
+                co.crunchbase_industries,
+                co.crunchbase_headquarters_location,
+                co.crunchbase_stage,
+                co.crunchbase_number_of_employees,
+                co.crunchbase_estimated_revenue_range,
+                co.crunchbase_total_funding_amount,
+                co.website
+         FROM contacts c
+         LEFT JOIN companies co ON c.company_id = co.id
+         WHERE c.id = ?`,
+        [contactId]
+    );
+
+    if (!contact) throw new Error('Contact not found');
+
+    // Normalize title
+    contact.title = normalizeTitle(contact.title);
+
+    const campaign = await db.get<any>('SELECT * FROM campaigns WHERE id = ?', [campaignId]);
+    if (!campaign) throw new Error('Campaign not found');
+
+    // Load and parse EarthX context doc, store in DB if needed
+    let earthx = await loadEarthXDataFromDb(db);
+    if (!earthx) {
+        earthx = await loadEarthXDataFromFile();
+        await saveEarthXDataToDb(db, earthx);
+    }
+
+    // Generate and score drafts with validation
+    let bestDraft: any = null;
+    let attempts = 0;
+    const maxAttempts = 3;
+    let allDrafts: any[] = [];
+
+    while (!bestDraft && attempts < maxAttempts) {
+        const drafts = await generateAndScoreDrafts(contact, earthx, db, campaignId);
+        allDrafts = drafts; // Keep the last set of drafts
+        const candidate = await selectBestDraft(drafts, contact);
+        
+        if (candidate) {
+            // Final validation
+            const isValid = validateDraft(candidate, earthx, contact);
+            if (isValid) {
+                bestDraft = candidate;
+            } else {
+                console.log(`Draft failed final validation, attempt ${attempts + 1}/${maxAttempts}`);
+                attempts++;
+            }
+        } else {
+            console.log(`No valid drafts generated, attempt ${attempts + 1}/${maxAttempts}`);
+            attempts++;
+        }
+    }
+
+    if (!bestDraft) {
+        throw new Error('Could not generate a valid draft that meets quality criteria after multiple attempts');
+    }
+
+    // Enforce diversity
+    const isDiverse = await enforceDiversity(bestDraft, db, campaignId, contactId);
+    if (!isDiverse) {
+        console.log('Draft similarity high; proceeding with warning.');
+    }
+
+    // Insert message
+    const result = await db.run(
+        'INSERT INTO messages (contact_id, campaign_id, subject, body, status) VALUES (?, ?, ?, ?, ?)',
+        [contactId, campaignId, bestDraft.subject, bestDraft.body, 'DRAFTED']
+    );
+    const messageId = result.lastID!;
+
+    // Insert drafts with detailed metadata
+    for (const draft of allDrafts) {
+        await db.run(
+            `INSERT INTO drafts (
+                message_id, version, subject, body, score, selected,
+                template_id, title_category, angle, used_fields_json, coverage_score,
+                similarity_score, banned_phrase_hits, hash, selected_highlight, selected_attendee_type,
+                subject_hash, body_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                messageId,
+                draft.angle === 'ROLE_FIRST' ? 'A' : draft.angle === 'COMPANY_FIRST' ? 'B' : 'C',
+                draft.subject,
+                draft.body,
+                draft.score,
+                draft === bestDraft ? 1 : 0,
+                draft.template_id,
+                draft.title_category,
+                draft.angle,
+                draft.used_fields_json,
+                draft.coverage_score,
+                draft.similarity_score,
+                draft.banned_phrase_hits,
+                draft.hash,
+                draft.selected_highlight,
+                draft.selected_attendee_type,
+                draft.subject_hash,
+                draft.body_hash
+            ]
+        );
+    }
+
+    // Save to recent messages for diversity tracking
+    await saveDraftToRecent(bestDraft, db, campaignId, contactId);
+
+    return {
+        subject: bestDraft.subject,
+        body: bestDraft.body,
+        messageId,
+        drafts: allDrafts.map(d => ({
+            version: d.angle === 'ROLE_FIRST' ? 'A' : d.angle === 'COMPANY_FIRST' ? 'B' : 'C',
+            subject: d.subject,
+            body: d.body,
+            score: d.score,
+            template_id: d.template_id,
+            title_category: d.title_category,
+            angle: d.angle,
+            used_fields_json: d.used_fields_json,
+            coverage_score: d.coverage_score,
+            similarity_score: d.similarity_score,
+            banned_phrase_hits: d.banned_phrase_hits,
+            hash: d.hash,
+            selected_highlight: d.selected_highlight,
+            selected_attendee_type: d.selected_attendee_type
+        }))
+    };
+}
+
+export async function draftFollowupEmail(
+    db: Database,
+    contactId: number,
+    campaignId: number,
+    step: number
+): Promise<{subject: string, body: string, messageId: number}> {
+    const contact = await db.get<any>(
+        `SELECT c.*, co.name as company_name
+         FROM contacts c
+         LEFT JOIN companies co ON c.company_id = co.id
+         WHERE c.id = ?`,
+        [contactId]
+    );
+
+    if (!contact) throw new Error('Contact not found');

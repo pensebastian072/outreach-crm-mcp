@@ -1,0 +1,205 @@
+
+I wanted to follow up on my previous message about EarthX. We're still planning to connect with innovative companies like ${contact.company_name}.
+
+Have you had a chance to consider attending?
+
+Best regards,
+[Your Name]`;
+
+    const result = await db.run(
+        'INSERT INTO messages (contact_id, campaign_id, subject, body, status) VALUES (?, ?, ?, ?, ?)',
+        [contactId, campaignId, subject, body, 'DRAFTED']
+    );
+
+    return { subject, body, messageId: result.lastID! };
+}
+
+export async function createOutlookDraft(
+    db: Database,
+    auth: AuthManager,
+    contactId: number,
+    subject: string,
+    body: string
+): Promise<string> {
+    const client = getOutlookClient();
+    
+    // Get contact email and name
+    const contact = await db.get<any>(
+        'SELECT first_name, last_name, email FROM contacts WHERE id = ?',
+        [contactId]
+    );
+
+    if (!contact || !contact.email) {
+        throw new Error('Contact not found or missing email address');
+    }
+
+    const contactName = `${contact.first_name} ${contact.last_name}`.trim();
+    
+    try {
+        const draftId = await client.createDraft(
+            contact.email,
+            subject,
+            body,
+            contactName
+        );
+        
+        return draftId;
+    } catch (error) {
+        console.error('Failed to create Outlook draft:', error);
+        throw error;
+    }
+}
+
+export async function sendOutlookEmail(
+    db: Database,
+    auth: AuthManager,
+    contactId: number,
+    subject: string,
+    body: string
+): Promise<void> {
+    const client = getOutlookClient();
+    
+    // Get contact email and name
+    const contact = await db.get<any>(
+        'SELECT first_name, last_name, email FROM contacts WHERE id = ?',
+        [contactId]
+    );
+
+    if (!contact || !contact.email) {
+        throw new Error('Contact not found or missing email address');
+    }
+
+    const contactName = `${contact.first_name} ${contact.last_name}`.trim();
+    
+    try {
+        await client.sendEmail(
+            contact.email,
+            subject,
+            body,
+            contactName
+        );
+        
+        // Update message status to SENT
+        await db.run(
+            'UPDATE messages SET status = ?, sent_at = datetime("now") WHERE contact_id = ? AND subject = ? AND body = ?',
+            ['SENT', contactId, subject, body]
+        );
+    } catch (error) {
+        console.error('Failed to send email:', error);
+        // Update message status to FAILED
+        await db.run(
+            'UPDATE messages SET status = ? WHERE contact_id = ? AND subject = ? AND body = ?',
+            ['FAILED', contactId, subject, body]
+        );
+        throw error;
+    }
+}
+
+export async function debugEmailAnalysis(
+    db: Database,
+    messageId: number
+): Promise<any> {
+    // Get message details
+    const message = await db.get<any>(
+        'SELECT * FROM messages WHERE id = ?',
+        [messageId]
+    );
+    
+    if (!message) throw new Error('Message not found');
+    
+    // Get contact details
+    const contact = await db.get<any>(
+        `SELECT c.*, co.* FROM contacts c 
+         LEFT JOIN companies co ON c.company_id = co.id 
+         WHERE c.id = ?`,
+        [message.contact_id]
+    );
+    
+    // Get all drafts for this message
+    const drafts = await db.all<any>(
+        'SELECT * FROM drafts WHERE message_id = ? ORDER BY score DESC',
+        [messageId]
+    );
+    
+    // Get recent messages for similarity analysis
+    const recentMessages = await db.all<any>(
+        `SELECT subject, body FROM messages 
+         WHERE campaign_id = ? AND id != ? 
+         ORDER BY created_at DESC LIMIT 5`,
+        [message.campaign_id, messageId]
+    );
+    
+    return {
+        message: {
+            id: message.id,
+            subject: message.subject,
+            body: message.body,
+            status: message.status,
+            created_at: message.created_at
+        },
+        contact: {
+            id: contact.id,
+            name: `${contact.first_name} ${contact.last_name}`,
+            title: contact.title,
+            company: contact.name || contact.company_name,
+            industries: contact.crunchbase_industries,
+            description: contact.crunchbase_description
+        },
+        drafts: drafts.map(d => ({
+            version: d.version,
+            score: d.score,
+            selected: d.selected,
+            template_id: d.template_id,
+            title_category: d.title_category,
+            angle: d.angle,
+            coverage_score: d.coverage_score,
+            similarity_score: d.similarity_score,
+            banned_phrase_hits: d.banned_phrase_hits,
+            selected_highlight: d.selected_highlight,
+            selected_attendee_type: d.selected_attendee_type,
+            used_fields: JSON.parse(d.used_fields_json || '[]')
+        })),
+        recent_context: recentMessages.map(m => ({
+            subject: m.subject,
+            body_preview: m.body.substring(0, 200) + '...'
+        }))
+    };
+}
+
+export async function summarizeCampaignDrafts(
+    db: Database,
+    campaignId: number
+): Promise<{ total_selected: number; avg_score: number; avg_similarity: number; avg_coverage: number; banned_hits: number }> {
+    const rows = await db.all<any>(
+        `SELECT d.score, d.similarity_score, d.coverage_score, d.banned_phrase_hits
+         FROM drafts d
+         JOIN messages m ON d.message_id = m.id
+         WHERE m.campaign_id = ? AND d.selected = 1`,
+        [campaignId]
+    );
+
+    if (!rows || rows.length === 0) {
+        return { total_selected: 0, avg_score: 0, avg_similarity: 0, avg_coverage: 0, banned_hits: 0 };
+    }
+
+    const totals = rows.reduce(
+        (acc: any, r: any) => {
+            acc.score += r.score || 0;
+            acc.similarity += r.similarity_score || 0;
+            acc.coverage += r.coverage_score || 0;
+            acc.banned += r.banned_phrase_hits || 0;
+            return acc;
+        },
+        { score: 0, similarity: 0, coverage: 0, banned: 0 }
+    );
+
+    const count = rows.length;
+    return {
+        total_selected: count,
+        avg_score: Number((totals.score / count).toFixed(2)),
+        avg_similarity: Number((totals.similarity / count).toFixed(3)),
+        avg_coverage: Number((totals.coverage / count).toFixed(2)),
+        banned_hits: totals.banned
+    };
+}
+

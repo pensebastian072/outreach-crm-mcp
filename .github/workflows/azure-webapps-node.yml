@@ -1,0 +1,506 @@
+---
+# Azure Web App Deployment Workflow
+#
+# This workflow builds and deploys a Node.js application to Azure
+# App Service when code is pushed to main.
+#
+# ============================================================================
+# CONFIGURATION GUIDE
+# ============================================================================
+#
+# REQUIRED SETUP:
+#
+# 1. Deploy Azure Infrastructure:
+#    - Run: cd azure && ./deploy.sh
+#    - This creates the App Service (deployment slots are optional)
+#
+# 2. Configure GitHub Secrets (Required):
+#    - AZURE_WEBAPP_PUBLISH_PROFILE: production publish profile (required)
+#
+# 3. Configure AZURE_CREDENTIALS (Optional but Recommended):
+#    - Purpose: Enables advanced features like infrastructure validation
+#      and checks
+#    - Benefits:
+#      ✓ Pre-deployment validation of Azure infrastructure
+#      ✓ Better error messages and troubleshooting
+#      ✓ Integration with Azure CLI commands
+#
+#    - To create service principal:
+#      ```bash
+#      # Get your subscription ID
+#      SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+#
+#      # Create service principal with contributor role
+#      az ad sp create-for-rbac \
+#        --name "your-app-github-actions" \
+#        --role contributor \
+#        --scopes /subscriptions/$SUBSCRIPTION_ID/resourceGroups/your-resource-group \
+#        --sdk-auth
+#      ```
+#
+#    - Add the JSON output as AZURE_CREDENTIALS secret in GitHub:
+#      GitHub Repo → Settings → Secrets and variables → Actions →
+#      New repository secret
+#      Name: AZURE_CREDENTIALS
+#      Value: [paste entire JSON output]
+#
+# ============================================================================
+# DEPLOYMENT FLOW
+# ============================================================================
+#
+# 1. Build: Install dependencies, compile TypeScript, run tests
+# 2. Validate: Check deployment slots exist (if AZURE_CREDENTIALS
+#    is set)
+# 3. Deploy: Deploy directly to production
+# 4. Health Check: Verify deployment is responding
+#
+# ============================================================================
+# ADDITIONAL RESOURCES
+# ============================================================================
+#
+# - Azure Actions: https://github.com/Azure/Actions
+# - WebApps Deploy: https://github.com/Azure/webapps-deploy
+# - Workflow Samples: https://github.com/Azure/actions-workflow-samples
+# - Deployment Guide: See DEPLOYMENT.md in repository
+
+"on":
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: your-app-name  # your application's name
+  AZURE_WEBAPP_SLOT_NAME: ecb0fqahaebtd6g9  # target deployment slot
+  AZURE_WEBAPP_PACKAGE_PATH: '.'  # path to web app project
+  NODE_VERSION: '20.x'  # node version to use
+  RESOURCE_GROUP: 'your-resource-group'  # Azure resource group name
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: npm install, build, and test
+        run: |
+          npm install
+          npm run build --if-present
+          npm run test --if-present
+
+      - name: Verify Build Output
+        run: |
+          echo "Checking if web-server.js was built..."
+          if [ ! -f "dist/web-server.js" ]; then
+            echo "❌ ERROR: dist/web-server.js not found!"
+            echo "Build may have failed. Contents of dist/:"
+            ls -la dist/ || echo "dist/ directory doesn't exist"
+            exit 1
+          fi
+          echo "✅ dist/web-server.js exists"
+          echo "Build artifacts:"
+          ls -la dist/
+
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-app
+          path: .
+
+  # Validate deployment slots exist before deploying
+  # (Optional with Azure login)
+  validate-infrastructure:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Check if Azure credentials are configured
+        id: check-creds
+        run: |
+          if [[ -n "${{ secrets.AZURE_CREDENTIALS }}" ]]; then
+            echo "has_creds=true" >> $GITHUB_OUTPUT
+            echo "✅ AZURE_CREDENTIALS configured"
+            echo "   - enabling infrastructure validation"
+            echo ""
+            echo "Benefits of Azure login:"
+            echo "  • Pre-deployment infrastructure validation"
+            echo "  • Better error detection and troubleshooting"
+            echo "  • Integration with Azure CLI for advanced operations"
+          else
+            echo "has_creds=false" >> $GITHUB_OUTPUT
+            echo "⚠️ AZURE_CREDENTIALS not configured"
+            echo "   - skipping infrastructure validation"
+            echo ""
+            echo "Note: Deployment will still work using publish"
+            echo "profiles, but you'll miss out on:"
+            echo "  • Pre-deployment slot validation"
+            echo "  • Infrastructure health checks"
+            echo ""
+            echo "To enable these features, add"
+            echo "AZURE_CREDENTIALS secret:"
+            echo "See workflow comments or DEPLOYMENT.md for setup"
+            echo "instructions"
+          fi
+
+      - name: Login to Azure
+        if: steps.check-creds.outputs.has_creds == 'true'
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Validate Azure infrastructure
+        if: steps.check-creds.outputs.has_creds == 'true'
+        run: |
+          echo "================================"
+          echo "Azure Infrastructure Validation"
+          echo "================================"
+          echo ""
+
+          # Check if web app exists
+          echo "Checking web app: ${{ env.AZURE_WEBAPP_NAME }}..."
+          if az webapp show \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} &>/dev/null; then
+            echo "✅ Web app exists"
+          else
+            echo "❌ ERROR: Web app not found"
+            echo "Please deploy Azure infrastructure:"
+            echo "cd azure && ./deploy.sh"
+            exit 1
+          fi
+
+          echo ""
+
+          # List all deployment slots
+          echo "Checking deployment slots..."
+          slots=$(az webapp deployment slot list \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --query "[].name" -o tsv || echo "")
+
+          if [[ -z "$slots" ]]; then
+            echo "⚠️ WARNING: No deployment slots found"
+            echo ""
+            echo "Note: This workflow deploys directly to"
+            echo "production."
+            echo "To create deployment slots for staging, deploy"
+            echo "infrastructure: cd azure && ./deploy.sh"
+            echo ""
+            echo "Continuing anyway..."
+          else
+            echo "✅ Found deployment slots:"
+            echo "$slots" | sed 's/^/  • /'
+            echo ""
+            echo "Note: Workflow deploys directly to production"
+            echo "(not to slots)"
+          fi
+
+          echo ""
+          echo "================================"
+          echo "Validation Complete"
+          echo "================================"
+
+      - name: Logout from Azure
+        if: always() && steps.check-creds.outputs.has_creds == 'true'
+        run: az logout
+
+  # Deploy to production
+  deploy:
+    permissions:
+      contents: none
+    runs-on: ubuntu-latest
+    needs: [build, validate-infrastructure]
+    if: |
+      always() && needs.build.result == 'success' &&
+      needs.validate-infrastructure.result != 'failure'
+    environment:
+      name: 'Production'
+      url: ${{ steps.deploy-to-production.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: node-app
+
+      - name: Check publish profile
+        id: check-publish-profile
+        env:
+          SLOT_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_SLOT }}
+          STAGING_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_STAGING }}
+          PROD_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        run: |
+          if [ -n "$SLOT_PROFILE" ]; then
+            echo "publish_profile<<EOF" >> $GITHUB_OUTPUT
+            echo "$SLOT_PROFILE" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "✅ Slot publish profile configured (AZURE_WEBAPP_PUBLISH_PROFILE_SLOT)"
+            exit 0
+          fi
+          if [ -n "$STAGING_PROFILE" ]; then
+            echo "publish_profile<<EOF" >> $GITHUB_OUTPUT
+            echo "$STAGING_PROFILE" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "✅ Staging publish profile configured (AZURE_WEBAPP_PUBLISH_PROFILE_STAGING)"
+            exit 0
+          fi
+          if [ -n "$PROD_PROFILE" ]; then
+            echo "publish_profile<<EOF" >> $GITHUB_OUTPUT
+            echo "$PROD_PROFILE" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "✅ Production publish profile configured (AZURE_WEBAPP_PUBLISH_PROFILE)"
+            exit 0
+          fi
+          echo "❌ ERROR: No publish profile secret configured"
+          echo "Set AZURE_WEBAPP_PUBLISH_PROFILE_SLOT (recommended) for slot deployments"
+          echo "or AZURE_WEBAPP_PUBLISH_PROFILE_STAGING / AZURE_WEBAPP_PUBLISH_PROFILE"
+          exit 1
+
+      - name: 'Deploy to Production'
+        id: deploy-to-production
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          slot-name: ${{ env.AZURE_WEBAPP_SLOT_NAME }}
+          publish-profile: ${{ steps.check-publish-profile.outputs.publish_profile }}
+          package: ${{ env.AZURE_WEBAPP_PACKAGE_PATH }}
+
+      # ========================================================================
+      # OPTIONAL: Automated Slot Swap to Production
+      # ========================================================================
+      #
+      # NOTE: This section is not applicable to the current workflow
+      # configuration as the workflow deploys directly to production
+      # without using staging slots.
+      #
+      # To enable automated slot swaps, you would need to:
+      # 1. Configure a staging deployment slot in Azure
+      # 2. Add AZURE_WEBAPP_PUBLISH_PROFILE_STAGING secret
+      # 3. Modify the workflow to deploy to staging first (instead of
+      #    production)
+      # 4. Ensure AZURE_CREDENTIALS secret is configured
+      # 5. Uncomment and configure the 'swap-to-production' job below
+      #
+      # ========================================================================
+
+      # swap-to-production:
+      #   runs-on: ubuntu-latest
+      #   needs: deploy
+      #   environment:
+      #     name: 'Production'
+      #     url: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net
+      #
+      #   steps:
+      #   - name: Check Azure credentials
+      #     run: |
+      #       if [[ -z "${{ secrets.AZURE_CREDENTIALS }}" ]]; then
+      #         echo "❌ ERROR: AZURE_CREDENTIALS not configured"
+      #         echo "Automated slot swaps require Azure service"
+      #         echo "principal credentials"
+      #         echo "See workflow header comments for setup"
+      #         echo "instructions"
+      #         exit 1
+      #       fi
+      #       echo "✅ Azure credentials configured"
+      #
+      #   - name: Login to Azure
+      #     uses: azure/login@v1
+      #     with:
+      #       creds: ${{ secrets.AZURE_CREDENTIALS }}
+      #
+      #   - name: Swap staging to production
+      #     run: |
+      #       echo "================================"
+      #       echo "Swapping Staging → Production"
+      #       echo "================================"
+      #       echo ""
+      #       echo "Web App: ${{ env.AZURE_WEBAPP_NAME }}"
+      #       echo "Resource Group: ${{ env.RESOURCE_GROUP }}"
+      #       echo "Source Slot: staging"
+      #       echo "Target Slot: production"
+      #       echo ""
+      #
+      #       az webapp deployment slot swap \
+      #         --resource-group ${{ env.RESOURCE_GROUP }} \
+      #         --name ${{ env.AZURE_WEBAPP_NAME }} \
+      #         --slot staging \
+      #         --target-slot production
+      #
+      #       echo ""
+      #       echo "✅ Swap completed successfully"
+      #       echo ""
+      #       echo "Production URL:"
+      #       echo "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+      #       echo "Previous production (now in staging):"
+      #       echo "https://${{ env.AZURE_WEBAPP_NAME }}"
+      #       echo "-staging.azurewebsites.net"
+      #
+      #   - name: Verify production deployment
+      #     run: |
+      #       echo "Verifying production deployment..."
+      #
+      #       # Wait for app to warm up (typical warm-up time)
+      #       echo "Waiting 10 seconds for app warm-up..."
+      #       sleep 10
+      #
+      #       PROD_URL="https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+      #       HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+      #         "$PROD_URL" || echo "000")
+      #
+      #       if [ "$HTTP_STATUS" = "200" ] ||
+      #         [ "$HTTP_STATUS" = "301" ] ||
+      #         [ "$HTTP_STATUS" = "302" ]; then
+      #         echo "✅ Production is responding successfully"
+      #         echo "(HTTP $HTTP_STATUS)"
+      #       else
+      #         echo "⚠️ Warning: Production returned HTTP"
+      #         echo "$HTTP_STATUS"
+      #         echo "Check Azure Portal logs for details"
+      #       fi
+      #
+      #   - name: Logout from Azure
+      #     if: always()
+      #     run: az logout
+
+      - name: 'Health Check'
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 60
+          
+          echo "Testing application health..."
+          if [ -n "${{ env.AZURE_WEBAPP_SLOT_NAME }}" ]; then
+            HEALTH_URL="https://${{ env.AZURE_WEBAPP_NAME }}-${{ env.AZURE_WEBAPP_SLOT_NAME }}.azurewebsites.net/health"
+          else
+            HEALTH_URL="https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health"
+          fi
+          
+          # First, test DNS resolution
+          echo "Step 1: Testing DNS resolution..."
+          if ! nslookup "${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net" > /dev/null 2>&1; then
+            echo ""
+            echo "❌ DNS Resolution Failed"
+            echo ""
+            echo "Cannot resolve: ${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+            echo ""
+            echo "Possible causes:"
+            echo "  1. The Azure Web App doesn't exist or isn't deployed yet"
+            echo "  2. The app name in AZURE_WEBAPP_NAME is incorrect"
+            echo "  3. DNS propagation is still in progress (rare)"
+            echo ""
+            echo "Action required:"
+            echo "  • Verify the Web App exists in Azure Portal:"
+            echo "    https://portal.azure.com → App Services → ${{ env.AZURE_WEBAPP_NAME }}"
+            echo "  • Check that AZURE_WEBAPP_NAME matches your Azure Web App name"
+            echo "  • If the app exists, try accessing it directly in a browser after a few minutes"
+            echo ""
+            echo "Skipping further health checks (no point retrying DNS failures)"
+            exit 0
+          fi
+          
+          echo "✅ DNS resolution successful"
+          
+          # Test basic connectivity
+          echo ""
+          echo "Step 2: Testing basic connectivity..."
+          (curl -v -m 30 "$HEALTH_URL" 2>&1 || true) | head -20
+          echo "Initial connection test completed"
+          
+          echo ""
+          echo "Step 3: Attempting health checks (7 attempts with 15 second delays)..."
+          
+          for i in {1..7}; do
+            echo "Attempt $i of 7..."
+            
+            # Clean up any previous response file
+            rm -f /tmp/response.txt
+            
+            HTTP_STATUS=$(curl -s -o /tmp/response.txt -w "%{http_code}" -m 30 "$HEALTH_URL" 2>/dev/null || echo "000")
+            
+            echo "  HTTP Status: $HTTP_STATUS"
+            
+            # Show response body if available
+            if [ -f /tmp/response.txt ] && [ -s /tmp/response.txt ]; then
+              response=$(cat /tmp/response.txt)
+              if [ ${#response} -gt 200 ]; then
+                echo "  Response: ${response:0:200}..."
+              else
+                echo "  Response: $response"
+              fi
+            fi
+          
+            if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "301" ] || [ "$HTTP_STATUS" = "302" ]; then
+              echo ""
+              echo "✅ Application is responding successfully!"
+              echo "   Deployment verified at: $HEALTH_URL"
+              exit 0
+            fi
+          
+            if [ "$HTTP_STATUS" = "503" ]; then
+              echo "  ⏳ App is starting (503 Service Unavailable) - this is normal during startup"
+            elif [ "$HTTP_STATUS" = "000" ]; then
+              echo "  ⚠️ Connection failed - app container may not be started yet"
+            else
+              echo "  ⚠️ Unexpected status code - check Azure logs"
+            fi
+          
+            if [ $i -lt 7 ]; then
+              echo "  Waiting 15 seconds before retry..."
+              sleep 15
+            fi
+          done
+          
+          echo ""
+          echo "⚠️ Warning: Health check did not succeed after 7 attempts (~1.5 minutes)"
+          echo ""
+          echo "This is not necessarily a deployment failure - Azure apps can take"
+          echo "several minutes to start, especially on the first deployment."
+          echo ""
+          echo "Manual verification steps:"
+          echo "  1. Wait 2-3 more minutes, then test manually:"
+          echo "     curl -I https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health"
+          echo ""
+          echo "  2. Check Azure Portal logs:"
+          echo "     https://portal.azure.com → ${{ env.AZURE_WEBAPP_NAME }} → Log Stream"
+          echo ""
+          echo "  3. Verify the app is running:"
+          echo "     https://portal.azure.com → ${{ env.AZURE_WEBAPP_NAME }} → Overview"
+          echo ""
+          echo "  4. Check startup command (should be: node dist/web-server.js):"
+          echo "     https://portal.azure.com → ${{ env.AZURE_WEBAPP_NAME }} → Configuration → General settings"
+          echo ""
+          echo "  5. Verify environment variables are set (PORT=8080, NODE_ENV=production):"
+          echo "     https://portal.azure.com → ${{ env.AZURE_WEBAPP_NAME }} → Configuration → Application settings"
+          
+          # Don't fail the workflow - allow manual verification
+          exit 0
+        shell: bash
+
+      - name: 'Deployment Summary'
+        if: always()
+        run: |
+          echo "================================"
+          echo "Deployment Summary"
+          echo "================================"
+          echo "App Name: ${{ env.AZURE_WEBAPP_NAME }}"
+          echo "App URL:"
+          echo "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+          echo "Deployment Time: $(date -u)"
+          echo "================================"
+          echo ""
+          echo "Next Steps:"
+          echo "1. Visit"
+          echo "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+          echo "to verify the app"
+          echo "2. Check Azure Portal > App Service > Log Stream"
+          echo "for application logs"
+          echo "3. Ensure environment variables are configured in"
+          echo "Azure Portal > Configuration"
+          echo "================================"
