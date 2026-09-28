@@ -1,0 +1,43 @@
+SAMPLE CONTEXT - replace with your own "data/Earth X context.txt" before real outreach.
+Organization name: Example Climate Expo
+Org description: A nonprofit convening builders, investors and buyers in climate technology.
+Org founded year: 2011
+event_name: Example Climate Expo 2027
+event_city: Dallas, TX
+event_venue: Example Convention Center
+event_date_range: April 20-22, 2027
+event_anniversary_years: 16
+event_industry_leader_claim: one of the largest climate-tech gatherings in Texas
+________________________________________
+2) CORE THEMES
+1. Carbon Capture
+2. Clean Water
+3. Grid Storage
+________________________________________
+3) TARGET PARTNER PROFILE
+company_size_employees: 10-500
+funding_stage: Seed to Series C
+technology_status: Pilot or commercial
+team: Founder-led
+alignment: Climate impact
+Disqualifiers
+• No climate relevance
+________________________________________
+4) APPROVED OUTREACH OFFER
+• ask_type_A: “a short call about exhibiting”
+• ask_type_B: “a speaking slot on a panel”
+• ask_type_C: “a sponsor conversation”
+Default CTA (your style): “Open to a 15-minute call next week?”
+________________________________________
+5) ROLE-BASED BENEFIT MESSAGING
+• CEO: “meet investors and enterprise buyers in one place”
+• CTO: “show your technology to technical evaluators”
+________________________________________
+6) COMPLIANCE + TONE RULES
+• “No guarantees of outcomes”
+Tone: Warm and concise.
+________________________________________
+7) CONTACT
+outreach_sender_name: Sample Sender
+outreach_sender_org: Example Climate Expo
+outreach_sender_email: partnerships@example.com
