@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import { Database } from './db/database';
 import { importContactsFromExcel } from './tools/import';
 import { importCrunchbaseFromExcel } from './tools/import_crunchbase';
@@ -8,18 +9,29 @@ import { getNextContactToContact } from './tools/next_contact';
 import { draftOutreachEmail, createOutlookDraft } from './tools/email';
 
 async function smokeTest() {
+    if (!fs.existsSync('./data/Earth X context.txt') && !fs.existsSync('./data/Earth X context.docx')) {
+        process.env.EARTHX_CONTEXT_PATH = './samples/Earth X context.sample.txt';
+        console.log('Using samples/Earth X context.sample.txt (no private context in data/)');
+    }
     const db = new Database('./data/test.db');
     await db.init();
 
     console.log('1. Importing contacts...');
-    const contactsPath = './contact list y com companies final mcp server.csv';
+    // Private contact lists were removed from the public repo; fall back to the shipped sample.
+    const contactsPath = fs.existsSync('./contact list y com companies final mcp server.csv')
+        ? './contact list y com companies final mcp server.csv'
+        : './samples/contacts.sample.csv';
     const importResult = await importContactsFromExcel(db, contactsPath);
     console.log('Contacts imported:', importResult);
 
     console.log('2. Importing Crunchbase...');
     const crunchbasePath = './crunchbase 425 list.xlsx';
-    const crunchbaseResult = await importCrunchbaseFromExcel(db, crunchbasePath);
-    console.log('Crunchbase imported:', crunchbaseResult);
+    if (fs.existsSync(crunchbasePath)) {
+        const crunchbaseResult = await importCrunchbaseFromExcel(db, crunchbasePath);
+        console.log('Crunchbase imported:', crunchbaseResult);
+    } else {
+        console.log('Crunchbase list not present (private data) - skipped');
+    }
 
     console.log('3. Importing EarthX context...');
     try {

@@ -189,7 +189,17 @@ app.get('/auth/gmail/start', (req: Request, res: Response) => {
         res.redirect(url);
     } catch (error) {
         recordError(error, req);
-        res.status(500).send('Failed to start Gmail OAuth');
+        const msg = (error as Error).message || 'Unknown error';
+        const missing = msg.startsWith('Missing Google OAuth configuration');
+        res.status(missing ? 400 : 500).send(
+            `<!doctype html><meta charset="utf-8"><title>Gmail not configured</title>` +
+            `<body style="font-family:system-ui,sans-serif;max-width:560px;margin:60px auto;line-height:1.5">` +
+            `<h2>${missing ? 'Gmail isn\'t set up yet' : 'Couldn\'t start Gmail sign-in'}</h2>` +
+            (missing
+                ? `<p>Add <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> and <code>GOOGLE_REDIRECT_URI</code> to your <code>.env</code> file (see <code>.env.example</code> and SETUP.md), then restart the app.</p>`
+                : `<p>${msg.replace(/[<>&]/g, '')}</p>`) +
+            `<p><a href="/">&larr; Back to the CRM</a></p></body>`
+        );
     }
 });
 
@@ -1062,9 +1072,11 @@ async function startServer() {
             });
         }, 60 * 60 * 1000);
         
-        // Bind to 0.0.0.0 to accept connections from Azure health checks
-        // Can be overridden with HOST environment variable
-        const host = process.env.HOST || '0.0.0.0';
+        // On Azure App Service (WEBSITE_SITE_NAME is set) bind 0.0.0.0 so health
+        // checks reach us. Locally, stay on this machine only so the contact list
+        // isn't reachable from the rest of the network. HOST overrides either way.
+        const onAzure = Boolean(process.env.WEBSITE_SITE_NAME);
+        const host = process.env.HOST || (onAzure ? '0.0.0.0' : '127.0.0.1');
         app.listen(port, host, () => {
             console.log(`HQ Outreach Web Server running on ${host}:${port}`);
             if (host === '0.0.0.0') {

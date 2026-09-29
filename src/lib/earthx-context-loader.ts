@@ -28,7 +28,10 @@ function normalizeContextText(text: string): string {
 
 async function readContextText(): Promise<string> {
   let txtCandidate = '';
-  for (const path of TEXT_PATHS) {
+  // Explicit override (used by the smoke test to point at samples/).
+  const override = process.env.EARTHX_CONTEXT_PATH;
+  const textPaths = override ? [override, ...TEXT_PATHS] : TEXT_PATHS;
+  for (const path of textPaths) {
     if (fs.existsSync(path)) {
       const raw = fs.readFileSync(path, 'utf-8');
       txtCandidate = normalizeContextText(raw);

@@ -11,6 +11,8 @@ data/outreach.db
 data/outreach.db-journal
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 
 # Build outputs - DO NOT IGNORE for Azure deployment
 # dist/
@@ -65,3 +67,4 @@ actionlint
 # Every row in samples/ is invented. Real contact exports must never be committed.
 !samples/
 !samples/*.csv
+.venv/
