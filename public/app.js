@@ -1126,31 +1126,31 @@ async function disconnectGmail() {
     }
 }
 
-async function renewGmailWatch() {
+// The server answers 400/500 with {error: "..."} (e.g. "No active Gmail account"); fetch()
+// only throws on network failure, so check response.ok or the button silently does nothing.
+async function runGmailAction(path, failMessage) {
     try {
-        await fetch(`${API_BASE}/gmail/watch/renew`, { method: 'POST' });
+        const response = await fetch(`${API_BASE}${path}`, { method: 'POST' });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            alert(`${failMessage}${data.error ? `: ${data.error}` : ''}`);
+        }
         await loadIntegrations();
     } catch (error) {
-        alert('Failed to renew Gmail watch.');
+        alert(`${failMessage}.`);
     }
+}
+
+async function renewGmailWatch() {
+    await runGmailAction('/gmail/watch/renew', 'Failed to renew Gmail watch');
 }
 
 async function syncGmailReplies() {
-    try {
-        await fetch(`${API_BASE}/gmail/sync`, { method: 'POST' });
-        await loadIntegrations();
-    } catch (error) {
-        alert('Failed to sync Gmail replies.');
-    }
+    await runGmailAction('/gmail/sync', 'Failed to sync Gmail replies');
 }
 
 async function syncGmailContacts() {
-    try {
-        await fetch(`${API_BASE}/gmail/contacts/sync`, { method: 'POST' });
-        await loadIntegrations();
-    } catch (error) {
-        alert('Failed to sync Gmail contacts.');
-    }
+    await runGmailAction('/gmail/contacts/sync', 'Failed to sync Gmail contacts');
 }
 
 // Auto-refresh every 30 seconds

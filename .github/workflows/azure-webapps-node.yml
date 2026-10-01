@@ -259,13 +259,16 @@ jobs:
             echo "✅ Production publish profile configured (AZURE_WEBAPP_PUBLISH_PROFILE)"
             exit 0
           fi
-          echo "❌ ERROR: No publish profile secret configured"
+          # No credentials (e.g. a fork or the public code-only copy): skip the deploy cleanly
+          # instead of failing every push with a red check.
+          echo "::notice::No publish profile secret configured - deploy skipped."
           echo "Set AZURE_WEBAPP_PUBLISH_PROFILE_SLOT (recommended) for slot deployments"
           echo "or AZURE_WEBAPP_PUBLISH_PROFILE_STAGING / AZURE_WEBAPP_PUBLISH_PROFILE"
-          exit 1
+          exit 0
 
       - name: 'Deploy to Production'
         id: deploy-to-production
+        if: steps.check-publish-profile.outputs.publish_profile != ''
         uses: azure/webapps-deploy@v2
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
@@ -371,6 +374,7 @@ jobs:
       #     run: az logout
 
       - name: 'Health Check'
+        if: steps.check-publish-profile.outputs.publish_profile != ''
         run: |
           echo "Waiting for deployment to stabilize..."
           sleep 60
